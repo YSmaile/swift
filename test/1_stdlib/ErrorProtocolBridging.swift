@@ -314,4 +314,108 @@ ErrorProtocolBridgingTests.test("Thrown NSError identity is preserved") {
   }
 }
 
+// Check errors customized via protocol.
+struct MyCustomizedError : ErrorProtocol {
+  let domain: String
+  let code: Int
+}
+
+extension MyCustomizedError : LocalizedError {
+  var errorDescription: String? {
+    return NSLocalizedString("something went horribly wrong", comment: "")
+  }
+
+  var failureReason: String? {
+    return NSLocalizedString("because someone wrote 'throw'", comment: "")
+  }
+
+  var recoverySuggestion: String? {
+    return NSLocalizedString("delete the 'throw'", comment: "")
+  }
+
+  var helpAnchor: String? {
+    return NSLocalizedString("there is no help when writing tests", comment: "")
+  }
+}
+
+extension MyCustomizedError : CustomNSError {
+  var errorDomain: String {
+    return domain
+  }
+
+  /// The error code within the given domain.
+  var errorCode: Int {
+    return code
+  }
+
+  /// The user-info dictionary.
+  var errorUserInfo: [String : AnyObject] {
+    return [ NSURLErrorKey : URL(string: "https://swift.org")! as AnyObject]
+  }
+}
+
+extension MyCustomizedError : RecoverableError {
+  var recoveryOptions: [String] {
+    return ["Delete 'throw'", "Disable the test" ]
+  }
+
+  func attemptRecovery(optionIndex recoveryOptionIndex: Int) -> Bool {
+    return recoveryOptionIndex == 0
+  }
+}
+
+/// Fake definition of the informal protocol
+/// "NSErrorRecoveryAttempting" that we use to poke at the object
+/// produced for a RecoverableError.
+@objc protocol FakeNSErrorRecoveryAttempting {
+  // FIXME: Should use ErrorProtocol here, not NSError.
+  @objc(attemptRecoveryFromError:optionIndex:delegate:didRecoverSelector:contextInfo:)
+  func attemptRecovery(fromError nsError: NSError,
+                       optionIndex recoveryOptionIndex: Int,
+                       delegate: AnyObject?,
+                       didRecoverSelector: Selector,
+                       contextInfo: UnsafeMutablePointer<Void>?)
+
+  @objc(attemptRecoveryFromError:optionIndex:)
+  func attemptRecovery(fromError nsError: NSError,
+                       optionIndex recoveryOptionIndex: Int) -> Bool
+}
+
+ErrorProtocolBridgingTests.test("Customizing NSError via protocols") {
+  let error = MyCustomizedError(domain: "custom", code: 12345)
+  let nsError = error as NSError
+
+  // CustomNSError
+  expectEqual("custom", nsError.domain)
+  expectEqual(12345, nsError.code)
+  expectOptionalEqual(URL(string: "https://swift.org")!,
+    nsError.userInfo[NSURLErrorKey] as? URL)
+
+  // LocalizedError
+  expectOptionalEqual("something went horribly wrong",
+    nsError.userInfo[NSLocalizedDescriptionKey] as? String)
+  expectOptionalEqual("because someone wrote 'throw'", 
+    nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String)
+  expectOptionalEqual("delete the 'throw'",
+    nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String)
+  expectOptionalEqual("there is no help when writing tests",
+    nsError.userInfo[NSHelpAnchorErrorKey] as? String)
+
+  // RecoverableError
+  expectOptionalEqual(["Delete 'throw'", "Disable the test" ],
+    nsError.userInfo[NSLocalizedRecoveryOptionsErrorKey] as? [String])
+
+#if false
+  // FIXME: Broken because _SwiftNativeNSError isn't down-casting to
+  // RecoverableError correctly.
+  let attempter = nsError.userInfo[NSRecoveryAttempterErrorKey]! 
+  expectOptionalEqual(attempter.attemptRecovery(fromError: nsError,
+                      optionIndex: 0),
+    true)
+  expectOptionalEqual(attempter.attemptRecovery(fromError: nsError,
+                      optionIndex: 1),
+    false)
+#endif
+}
+
 runAllTests()

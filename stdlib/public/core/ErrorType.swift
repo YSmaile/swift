@@ -9,6 +9,7 @@
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
+import SwiftShims
 
 // TODO: API review
 /// A type representing an error value that can be thrown.
@@ -111,17 +112,124 @@
 public protocol ErrorProtocol {
   var _domain: String { get }
   var _code: Int { get }
+#if _runtime(_ObjC)
+  var _userInfo: AnyObject? { get }
+#endif
 }
+
+#if _runtime(_ObjC)
+/// Class that implements the informal protocol
+/// NSErrorRecoveryAttempting, which is used by NSError when it
+/// attempts recovery from an error.
+class _NSErrorRecoveryAttempter {
+  @objc(attemptRecoveryFromError:optionIndex:delegate:didRecoverSelector:contextInfo:)
+  func attemptRecovery(fromError nsError: AnyObject,
+                       optionIndex recoveryOptionIndex: Int,
+                       delegate: AnyObject?,
+                       didRecoverSelector: UnsafeMutablePointer<Void>,
+                       contextInfo: UnsafeMutablePointer<Void>?) {
+    do {
+      throw nsError as! ErrorProtocol
+    } catch let error as RecoverableError {
+      error.attemptRecovery(optionIndex: recoveryOptionIndex) { success in
+        _swift_stdlib_perform_error_recovery_selector(
+          delegate, didRecoverSelector, success, contextInfo)
+      }
+    } catch {
+      fatalError("Not a recoverable error?")
+    }
+  }
+
+  @objc(attemptRecoveryFromError:optionIndex:)
+  func attemptRecovery(fromError nsError: AnyObject,
+                       optionIndex recoveryOptionIndex: Int) -> _SwiftObjCBool {
+    do {
+      throw nsError as! ErrorProtocol
+    } catch let error as RecoverableError {
+      let success = error.attemptRecovery(optionIndex: recoveryOptionIndex)
+
+    // Note: Matches the behavior of ObjCBool.
+#if os(OSX) || (os(iOS) && (arch(i386) || arch(arm)))
+      return success ? 1 : 0
+#else
+      return success
+#endif
+    } catch {
+      fatalError("Not a recoverable error?")
+    }
+  }
+}
+#endif
 
 extension ErrorProtocol {
   public var _domain: String {
     return String(reflecting: self.dynamicType)
   }
+
+#if _runtime(_ObjC)
+  public var _userInfo: AnyObject? {
+#if false
+    // If the OS supports value user info value providers, use those
+    // to lazily populate the user-info dictionary for this domain.
+    guard #available(OSX 10.11, iOS 9.0, tvOS 9.0, watchOS 2.0, *) else {
+      // FIXME: Can only do this if Foundation is loaded... hmmm...
+      return nil
+    }
+#endif
+
+    // Populate the user-info dictionary 
+    var result: [String : AnyObject]
+
+    // Initialize with custom user-info.
+    if let customNSError = self as? CustomNSError {
+      result = customNSError.errorUserInfo
+    } else {
+      result = [:]
+    }
+
+    // Set a key in the user-info dictionary.
+    func setObjectKey(_ key: _SwiftKnownNSErrorKey, to value: AnyObject) {
+      let keyObject = _swift_stdlib_nserror_key(key)
+      result[String(_cocoaString: keyObject)] = value
+    }
+
+    // Set a key in the user-info dictionary.
+    func setStringKey(_ key: _SwiftKnownNSErrorKey, to value: String) {
+      setObjectKey(key, to: _bridgeToObjectiveCUnconditional(value))
+    }
+
+    if let localizedError = self as? LocalizedError {
+      if let description = localizedError.errorDescription {
+        setStringKey(.localizedDescription, to: description)
+      }
+      
+      if let reason = localizedError.failureReason {
+        setStringKey(.localizedFailureReason, to: reason)
+      }
+      
+      if let suggestion = localizedError.recoverySuggestion {   
+        setStringKey(.localizedRecoverySuggestion, to: suggestion)
+      }
+      
+      if let helpAnchor = localizedError.helpAnchor {   
+        setStringKey(.helpAnchor, to: helpAnchor)
+      }
+    }
+    
+    if let recoverableError = self as? RecoverableError {
+      setObjectKey(.localizedRecoveryOptions,
+        to: _bridgeToObjectiveCUnconditional(recoverableError.recoveryOptions))
+      setObjectKey(.recoveryAttempter, to: _NSErrorRecoveryAttempter())
+    }
+
+    return _bridgeToObjectiveCUnconditional(result)
+  }
+#endif
 }
 
 #if _runtime(_ObjC)
-// Helper functions for the C++ runtime to have easy access to domain and
-// code as Objective-C values.
+// Helper functions for the C++ runtime to have easy access to domain,
+// code, and userInfo as Objective-C values.
 @_silgen_name("swift_stdlib_getErrorDomainNSString")
 public func _stdlib_getErrorDomainNSString<T : ErrorProtocol>(_ x: UnsafePointer<T>)
 -> AnyObject {
@@ -131,6 +239,14 @@ public func _stdlib_getErrorDomainNSString<T : ErrorProtocol>(_ x: UnsafePointer
 @_silgen_name("swift_stdlib_getErrorCode")
 public func _stdlib_getErrorCode<T : ErrorProtocol>(_ x: UnsafePointer<T>) -> Int {
   return x.pointee._code
+}
+
+// Helper functions for the C++ runtime to have easy access to domain and
+// code as Objective-C values.
+@_silgen_name("swift_stdlib_getErrorUserInfoNSDictionary")
+public func _stdlib_getErrorUserInfoNSDictionary<T : ErrorProtocol>(_ x: UnsafePointer<T>)
+-> AnyObject? {
+  return x.pointee._userInfo
 }
 
 // Known function for the compiler to use to coerce `ErrorProtocol` instances
@@ -154,3 +270,88 @@ public func _errorInMain(_ error: ErrorProtocol) {
 
 @available(*, unavailable, renamed: "ErrorProtocol")
 public typealias ErrorType = ErrorProtocol
+
+/// Describes an error that provides localized messages describing why
+/// an error occurred and provides more information about the error.
+public protocol LocalizedError : ErrorProtocol {
+  /// A localized message describing what error occurred.
+  var errorDescription: String? { get }
+
+  /// A localized message describing the reason for the failure.
+  var failureReason: String? { get }
+
+  /// A localized message describing how one might recover from the failure.
+  var recoverySuggestion: String? { get }
+
+  /// A localized message providing "help" text if the user requests help.
+  var helpAnchor: String? { get }
+}
+
+public extension LocalizedError {
+  var errorDescription: String? { return nil }
+  var failureReason: String? { return nil }
+  var recoverySuggestion: String? { return nil }
+  var helpAnchor: String? { return nil }
+}
+
+/// Describes an error that may be recoverably by presenting several
+/// potential recovery options to the user.
+public protocol RecoverableError : ErrorProtocol {
+  /// Provides a set of possible recovery options to present to the user.
+  var recoveryOptions: [String] { get }
+
+  /// Attempt to recover from this error when the user selected the
+  /// option at the given index. This routine must call resultHandler and
+  /// indicate whether recovery was successful (or not).
+  ///
+  /// This entry point is used for recovery of errors handled at a
+  /// "document" granularity, that do not affect the entire
+  /// application.
+  func attemptRecovery(optionIndex recoveryOptionIndex: Int,
+                       andThen resultHandler: (recovered: Bool) -> Void)
+
+  /// Attempt to recover from this error when the user selected the
+  /// option at the given index. Returns true to indicate
+  /// successful recovery, and false otherwise.
+  ///
+  /// This entry point is used for recovery of errors handled at
+  /// the "application" granularity, where nothing else in the
+  /// application can proceed until the attmpted error recovery
+  /// completes.
+  func attemptRecovery(optionIndex recoveryOptionIndex: Int) -> Bool
+}
+
+public extension RecoverableError {
+  /// By default, implements document-modal recovery via application-model
+  /// recovery.
+  func attemptRecovery(optionIndex recoveryOptionIndex: Int,
+                       andThen resultHandler: (recovered: Bool) -> Void) {
+    resultHandler(recovered: attemptRecovery(optionIndex: recoveryOptionIndex))
+  }
+}
+
+#if _runtime(_ObjC)
+/// Describes an error type that specifically provides a domain, code,
+/// and user-info dictionary.
+public protocol CustomNSError : ErrorProtocol {
+  /// The domain of the error.
+  var errorDomain: String { get }
+
+  /// The error code within the given domain.
+  var errorCode: Int { get }
+
+  /// The user-info dictionary.
+  var errorUserInfo: [String : AnyObject] { get }
+}
+
+public extension ErrorProtocol where Self : CustomNSError {
+  /// Default implementation for customized NSErrors.
+  var _domain: String { return self.errorDomain }
+
+  /// Default implementation for customized NSErrors.
+  var _code: Int { return self.errorCode }
+
+  /// Default implementation for customized NSErrors.
+  var _userInfo: [String : AnyObject] { return self.errorUserInfo }
+}
+#endif

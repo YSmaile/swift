@@ -18,6 +18,10 @@
 
 #import <CoreFoundation/CoreFoundation.h>
 #include "../SwiftShims/CoreFoundationShims.h"
+#import <Foundation/Foundation.h>
+#include "../SwiftShims/FoundationShims.h"
+#import <objc/objc.h>
+#import <objc/message.h>
 
 using namespace swift;
 
@@ -111,4 +115,29 @@ swift::_swift_stdlib_CFStringFindWithOptions(
 _swift_shims_CFStringRef
 swift::_swift_stdlib_objcDebugDescription(id __nonnull nsObject) {
   return [nsObject debugDescription];
+}
+
+id swift::_swift_stdlib_nserror_key(_SwiftKnownNSErrorKey key) {
+  switch (key) {
+  case _SwiftKnownNSErrorKeyLocalizedDescription:
+    return NSLocalizedDescriptionKey;
+  case _SwiftKnownNSErrorKeyLocalizedFailureReason:
+    return NSLocalizedFailureReasonErrorKey;
+  case _SwiftKnownNSErrorKeyLocalizedRecoverySuggestion:
+    return NSLocalizedRecoverySuggestionErrorKey;
+  case _SwiftKnownNSErrorKeyHelpAnchor:
+    return NSHelpAnchorErrorKey;
+  case _SwiftKnownNSErrorKeyLocalizedRecoveryOptions:
+    return NSLocalizedRecoveryOptionsErrorKey;
+  case _SwiftKnownNSErrorKeyRecoveryAttempter:
+    return NSRecoveryAttempterErrorKey;
+  }
+}
+
+void swift::_swift_stdlib_perform_error_recovery_selector(
+       _Nullable id delegate,
+       void * _Nonnull selector,
+       _SwiftCBool success,
+       void * _Nullable contextInfo) {
+  objc_msgSend(delegate, (SEL)selector, (BOOL)success, contextInfo);
 }

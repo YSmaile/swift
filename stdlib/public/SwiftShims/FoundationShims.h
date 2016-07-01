@@ -57,6 +57,40 @@ typedef struct {
 SWIFT_RUNTIME_STDLIB_INTERFACE
 _SwiftNSOperatingSystemVersion _swift_stdlib_operatingSystemVersion();
 
+#ifndef SWIFT_ENUM
+#  define SWIFT_ENUM(_type, _name) enum _name : _type _name; enum _name : _type
+#endif
+
+typedef SWIFT_ENUM(__swift_int8_t, _SwiftKnownNSErrorKey) {
+  _SwiftKnownNSErrorKeyLocalizedDescription = 0,
+  _SwiftKnownNSErrorKeyLocalizedFailureReason,
+  _SwiftKnownNSErrorKeyLocalizedRecoverySuggestion,
+  _SwiftKnownNSErrorKeyHelpAnchor,
+  _SwiftKnownNSErrorKeyLocalizedRecoveryOptions,
+  _SwiftKnownNSErrorKeyRecoveryAttempter
+};
+
+SWIFT_RUNTIME_STDLIB_INTERFACE
+id _Nonnull _swift_stdlib_nserror_key(_SwiftKnownNSErrorKey key);
+
+
+// FIXME: Need a configure-time check to tell us whether to use
+// "signed char" or "bool".
+typedef signed char _SwiftObjCBool; 
+
+#ifdef __cplusplus
+typedef bool _SwiftCBool;
+#else
+typedef _Bool _SwiftCBool;
+#endif
+
+SWIFT_RUNTIME_STDLIB_INTERFACE
+void _swift_stdlib_perform_error_recovery_selector(
+       _Nullable id delegate,
+       void *_Nonnull selector,
+       _SwiftCBool success,
+       void * _Nullable contextInfo);
+
 #ifdef __cplusplus
 }} // extern "C", namespace swift
 #endif
