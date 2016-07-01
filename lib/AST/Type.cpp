@@ -666,6 +666,25 @@ bool TypeBase::isEmptyExistentialComposition() {
   return false;
 }
 
+bool TypeBase::isExistentialWithErrorProtocol() {
+  // FIXME: Compute this as a bit in TypeBase so this operation isn't
+  // overly expensive.
+  SmallVector<ProtocolDecl *, 4> protocols;
+  if (!getCanonicalType()->isExistentialType(protocols)) return false;
+
+  auto errorProto =
+    getASTContext().getProtocol(KnownProtocolKind::ErrorProtocol);
+  if (!errorProto) return false;
+
+  for (auto proto : protocols) {
+    if (proto == errorProto || proto->inheritsFrom(errorProto))
+      return true;
+  }
+
+  return false;
+}
+
+
 static Type getStrippedType(const ASTContext &context, Type type,
                             bool stripLabels, bool stripDefaultArgs) {
   return type.transform([&](Type type) -> Type {
@@ -1906,10 +1925,11 @@ bool TypeBase::isBridgeableObjectType() {
 
 bool TypeBase::isPotentiallyBridgedValueType() {
   if (auto nominal = getAnyNominal()) {
-    return isa<StructDecl>(nominal) || isa<EnumDecl>(nominal);
+    if (isa<StructDecl>(nominal) || isa<EnumDecl>(nominal))
+      return true;
   }
-  
-  return false;
+
+  return isExistentialWithErrorProtocol();
 }
 
 /// Determine whether this is a representable Objective-C object type.
@@ -2014,6 +2034,7 @@ getForeignRepresentable(Type type, ForeignLanguage language,
         return false;
 
       case ForeignRepresentableKind::Bridged:
+      case ForeignRepresentableKind::BridgedError:
         anyBridged = true;
         return false;
 
@@ -2153,6 +2174,13 @@ getForeignRepresentable(Type type, ForeignLanguage language,
     }
   }
 
+  // In Objective-C, existentials involving ErrorProtocol are bridged
+  // to NSError.
+  if (language == ForeignLanguage::ObjectiveC &&
+      type->isExistentialWithErrorProtocol()) {
+    return { ForeignRepresentableKind::BridgedError, nullptr };
+  }
+
   // Determine whether this nominal type is known to be representable
   // in this foreign language.
   auto result = ctx.getForeignRepresentationInfo(nominal, language, dc);
@@ -2197,6 +2225,7 @@ getForeignRepresentable(Type type, ForeignLanguage language,
         
       case ForeignRepresentableKind::Object:
       case ForeignRepresentableKind::Bridged:
+      case ForeignRepresentableKind::BridgedError:
         break;
       }
     }
@@ -2220,6 +2249,7 @@ bool TypeBase::isRepresentableIn(ForeignLanguage language,
   case ForeignRepresentableKind::Trivial:
   case ForeignRepresentableKind::Object:
   case ForeignRepresentableKind::Bridged:
+  case ForeignRepresentableKind::BridgedError:
   case ForeignRepresentableKind::StaticBridged:
     return true;
   }
@@ -2230,6 +2260,7 @@ bool TypeBase::isTriviallyRepresentableIn(ForeignLanguage language,
   switch (getForeignRepresentableIn(language, dc).first) {
   case ForeignRepresentableKind::None:
   case ForeignRepresentableKind::Bridged:
+  case ForeignRepresentableKind::BridgedError:
   case ForeignRepresentableKind::StaticBridged:
     return false;
 

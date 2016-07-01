@@ -223,6 +223,15 @@ Type TypeConverter::getLoweredCBridgedType(AbstractionPattern pattern,
       bridgedTy = OptionalType::get(bridgedTy);
     return bridgedTy;
   }
+
+  case ForeignRepresentableKind::BridgedError: {
+    auto nsErrorDecl = M.getASTContext().getNSErrorDecl();
+    assert(nsErrorDecl && "Cannot bridge when NSError isn't available");
+    Type bridgedTy = nsErrorDecl->getDeclaredInterfaceType();
+    if (bridgedCollectionsAreOptional && clangTy)
+      bridgedTy = OptionalType::get(bridgedTy);
+    return bridgedTy;    
+  }
   }
 
   return t;

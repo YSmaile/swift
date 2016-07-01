@@ -49,7 +49,7 @@ func test_cast_to_nserror() {
   let e = ErrorClass()
 
   // CHECK: function_ref @swift_bridgeErrorProtocolToNSError
-  let nsCoerced = e as NSError
+  let nsCoerced = e as ErrorProtocol as NSError
 
   // CHECK: unconditional_checked_cast_addr {{.*}} AnyObject in {{%.*}} : $*AnyObject to NSError in {{%.*}} : $*NSError
   let nsForcedCast = (e as AnyObject) as! NSError
