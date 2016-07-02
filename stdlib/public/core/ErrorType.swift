@@ -122,41 +122,35 @@ public protocol ErrorProtocol {
 /// NSErrorRecoveryAttempting, which is used by NSError when it
 /// attempts recovery from an error.
 class _NSErrorRecoveryAttempter {
+  let error: RecoverableError
+
+  init(error: RecoverableError) {
+    self.error = error
+  }
+
   @objc(attemptRecoveryFromError:optionIndex:delegate:didRecoverSelector:contextInfo:)
   func attemptRecovery(fromError nsError: AnyObject,
                        optionIndex recoveryOptionIndex: Int,
                        delegate: AnyObject?,
                        didRecoverSelector: UnsafeMutablePointer<Void>,
                        contextInfo: UnsafeMutablePointer<Void>?) {
-    do {
-      throw nsError as! ErrorProtocol
-    } catch let error as RecoverableError {
-      error.attemptRecovery(optionIndex: recoveryOptionIndex) { success in
-        _swift_stdlib_perform_error_recovery_selector(
-          delegate, didRecoverSelector, success, contextInfo)
-      }
-    } catch {
-      fatalError("Not a recoverable error?")
+    error.attemptRecovery(optionIndex: recoveryOptionIndex) { success in
+      _swift_stdlib_perform_error_recovery_selector(
+        delegate, didRecoverSelector, success, contextInfo)
     }
   }
 
   @objc(attemptRecoveryFromError:optionIndex:)
   func attemptRecovery(fromError nsError: AnyObject,
                        optionIndex recoveryOptionIndex: Int) -> _SwiftObjCBool {
-    do {
-      throw nsError as! ErrorProtocol
-    } catch let error as RecoverableError {
-      let success = error.attemptRecovery(optionIndex: recoveryOptionIndex)
+    let success = error.attemptRecovery(optionIndex: recoveryOptionIndex)
 
     // Note: Matches the behavior of ObjCBool.
 #if os(OSX) || (os(iOS) && (arch(i386) || arch(arm)))
-      return success ? 1 : 0
+    return success ? 1 : 0
 #else
-      return success
+    return success
 #endif
-    } catch {
-      fatalError("Not a recoverable error?")
-    }
   }
 }
 #endif
@@ -219,7 +213,8 @@ extension ErrorProtocol {
     if let recoverableError = self as? RecoverableError {
       setObjectKey(.localizedRecoveryOptions,
         to: _bridgeToObjectiveCUnconditional(recoverableError.recoveryOptions))
-      setObjectKey(.recoveryAttempter, to: _NSErrorRecoveryAttempter())
+      setObjectKey(.recoveryAttempter,
+        to: _NSErrorRecoveryAttempter(error: recoverableError))
     }
 
     return _bridgeToObjectiveCUnconditional(result)
